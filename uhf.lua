@@ -1,4 +1,5 @@
--- uhf channel changer
+-- uhf 
+-- v2.0
 --
 -- your tape transmitted thru 
 -- late-night static and
@@ -7,42 +8,65 @@
 -- KEY3: change channel  
 -- KEY1 hold: tv guide
 -- ENC1: volume
--- ENC2: speed
--- ENC3: pitch
+-- ENC2: speed + random
+-- ENC3: pitch + random
 --
 -- change the channel to begin
 
 engine.name = 'Glut'
-local VOICES = 1
-local shift = 0
-local channel = 0
-local screen_dirty = true
+fileselect = require 'fileselect'
+util = require 'util'
 
-local function randomsample()
-  local i, t, popen = 0, {}, io.popen
-  local pfile = popen('ls -a "/home/we/dust/audio/tape"')
-  for filename in pfile:lines() do
-    i = i + 1
-    t[i] = "/home/we/dust/audio/tape/" .. filename
+chosen_directory = "tape/"
+VOICES = 1
+shift = 0
+channel = 0
+screen_dirty = true
+dirs = {}
+wavs = {}
+ps = {"jitter", "size", "density", "spread", "reverb_mix", "reverb_room", "reverb_damp" }
+
+function randomsample()
+  -- TODO: smarter scan of audio to check subfolders/etc
+  --chosen_directory = dirs[math.random(#dirs)]
+  --print("chosen: " .. chosen_directory)
+  wavs = util.scandir(_path.audio .. chosen_directory)
+  -- keep only .wav files
+  local clean_wavs = {}
+  for index, data in ipairs(wavs) do
+    if string.match(data, ".wav") then
+      table.insert(clean_wavs, data)
+    end
   end
-  pfile:close()
-  samp = (t[math.random(#t)])
+  --for index, data in ipairs(clean_wavs) do
+    --print(data)
+  --end
+  samp = _path.audio .. chosen_directory .. clean_wavs[math.random(#clean_wavs)]
   return (samp)
 end
 
-local function randomparams()
-  params:set("1speed", math.random(-200,200))
-  params:set("1jitter", math.random(0,500))
-  params:set("1size", math.random(1,500))
-  params:set("1density", math.random(0,512))
-  params:set("1pitch", math.random(-24,0))
-  params:set("1spread", math.random(0,100))
+function audio_folders()
+  dirs = util.scandir(_path.audio)
+  for index, data in ipairs(dirs) do
+    print(data)
+  end
+  --chosen_directory = (dirs[math.random(#dirs)])
+end
+
+function randomparams()
+  params:set("speed", math.random(-200,200))
+  params:set("jitter", math.random(0,500))
+  params:set("size", math.random(1,500))
+  params:set("density", math.random(0,512))
+  params:set("pitch", math.random(-24,0))
+  params:set("spread", math.random(0,100))
   params:set("reverb_mix", math.random(0,100))
   params:set("reverb_room", math.random(0,100))
   params:set("reverb_damp", math.random(0,100))
 end
 
 function init()
+  audio_folders()
   local SCREEN_FRAMERATE = 15
   local screen_refresh_metro = metro.init()
   screen_refresh_metro.event = function()
@@ -64,57 +88,56 @@ function init()
   params:add_taper("reverb_damp", "*"..sep.."damp", 0, 100, 50, 0, "%")
   params:set_action("reverb_damp", function(value) engine.reverb_damp(value / 100) end)
   
-  for v = 1, VOICES do
-    params:add_separator()
+  params:add_separator()
 
-    params:add_file(v.."sample", v..sep.."sample")
-    params:set_action(v.."sample", function(file) engine.read(v, file) end)
+  params:add_file("sample", sep.."sample")
+  params:set_action("sample", function(file) engine.read(1, file) end)
 
-    params:add_taper(v.."volume", v..sep.."volume", -60, 20, 0, 0, "dB")
-    params:set_action(v.."volume", function(value) engine.volume(v, math.pow(10, value / 20)) end)
+  params:add_taper("volume", sep.."volume", -60, 20, 0, 0, "dB")
+  params:set_action("volume", function(value) engine.volume(1, math.pow(10, value / 20)) end)
 
-    params:add_taper(v.."speed", v..sep.."speed", -200, 200, 100, 0, "%")
-    params:set_action(v.."speed", function(value) engine.speed(v, value / 100) end)
+  params:add_taper("speed", sep.."speed", -200, 200, 100, 0, "%")
+  params:set_action("speed", function(value) engine.speed(1, value / 100) end)
 
-    params:add_taper(v.."jitter", v..sep.."jitter", 0, 500, 0, 5, "ms")
-    params:set_action(v.."jitter", function(value) engine.jitter(v, value / 1000) end)
+  params:add_taper("jitter", sep.."jitter", 0, 500, 0, 5, "ms")
+  params:set_action("jitter", function(value) engine.jitter(1, value / 1000) end)
 
-    params:add_taper(v.."size", v..sep.."size", 1, 500, 100, 5, "ms")
-    params:set_action(v.."size", function(value) engine.size(v, value / 1000) end)
+  params:add_taper("size", sep.."size", 1, 500, 100, 5, "ms")
+  params:set_action("size", function(value) engine.size(1, value / 1000) end)
 
-    params:add_taper(v.."density", v..sep.."density", 0, 512, 20, 6, "hz")
-    params:set_action(v.."density", function(value) engine.density(v, value) end)
+  params:add_taper("density", sep.."density", 0, 512, 20, 6, "hz")
+  params:set_action("density", function(value) engine.density(1, value) end)
 
-    params:add_taper(v.."pitch", v..sep.."pitch", -24, 24, 0, 0, "st")
-    params:set_action(v.."pitch", function(value) engine.pitch(v, math.pow(0.5, -value / 12)) end)
+  params:add_taper("pitch", sep.."pitch", -24, 24, 0, 0, "st")
+  params:set_action("pitch", function(value) engine.pitch(1, math.pow(0.5, -value / 12)) end)
 
-    params:add_taper(v.."spread", v..sep.."spread", 0, 100, 0, 0, "%")
-    params:set_action(v.."spread", function(value) engine.spread(v, value / 100) end)
+  params:add_taper("spread", sep.."spread", 0, 100, 0, 0, "%")
+  params:set_action("spread", function(value) engine.spread(1, value / 100) end)
 
-    params:add_taper(v.."fade", v..sep.."att / dec", 1, 9000, 1000, 3, "ms")
-    params:set_action(v.."fade", function(value) engine.envscale(v, value / 1000) end)
-  end
-  
+  params:add_taper("fade", sep.."att / dec", 1, 9000, 1000, 3, "ms")
+  params:set_action("fade", function(value) engine.envscale(1, value / 1000) end)
+
   params:bang()
 end
 
-local function reset_voice()
+function reset_voice()
   engine.seek(1, 0)
 end
 
-local function start_voice()
-  reset_voice()
+function start_voice()
   engine.gate(1, 1)
 end
 
 function enc(n, d)
   if n == 1 then
-    params:delta("1volume", d)
+    params:delta("volume", d)
   elseif n == 2 then
-    params:delta("1speed", d)
+    params:delta("speed", d)
+    params:delta((ps[math.random(#ps)]), d)
     screen_dirty = true
   elseif n == 3 then
-    params:delta("1pitch", d)
+    params:delta("pitch", d)
+    params:delta((ps[math.random(#ps)]), d)
     screen_dirty = true
   end
 end
@@ -123,12 +146,19 @@ function key(n, z)
   if n == 1 then
     shift = z
     screen_dirty = true
+  elseif n == 2 then
+    if z == 1 then
+    else
+      --previous channel TODO
+      --channel = channel - 1
+      --screen_dirty = true
+    end
   elseif n == 3 then
     if z == 1 then
-      -- nothing for now
     else
       channel = channel + 1
-      params:set("1sample", randomsample())
+      reset_voice()
+      params:set("sample", randomsample())
       randomparams()
       start_voice()
       screen_dirty = true
@@ -136,12 +166,12 @@ function key(n, z)
   end
 end
 
-local function printround(num, numDecimalPlaces)
+function printround(num, numDecimalPlaces)
   local mult = 10^(numDecimalPlaces or 0)
   return math.floor(num * mult + 0.5) / mult
 end
 
-local function drawtv()
+function drawtv()
   --random screen pixels
   local heighta = math.random(1,30)
   local heightb = math.random(31,64)
@@ -168,11 +198,11 @@ local function drawtv()
   end
 end
 
-local function cleanfilename()
-  return(string.gsub(params:get("1sample"), "/home/we/dust/audio/tape/", ""))
+function cleanfilename()
+  return(string.gsub(params:get("sample"), "home/we/dust/audio/", ""))
 end
 
-local function guidetext(parameter, measure)
+function guidetext(parameter, measure)
   return(parameter .. ": " .. printround(params:get("1"..parameter), 1) .. measure)
 end
 
