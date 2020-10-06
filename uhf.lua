@@ -8,8 +8,8 @@
 -- KEY3: change channel  
 -- KEY1 hold: tv guide
 -- ENC1: volume
--- ENC2: speed + random
--- ENC3: pitch + random
+-- ENC2: speed + ??
+-- ENC3: pitch + ??
 --
 -- change the channel to begin
 
@@ -25,6 +25,9 @@ screen_dirty = true
 dirs = {}
 wavs = {}
 ps = {"jitter", "size", "density", "spread", "reverb_mix", "reverb_room", "reverb_damp" }
+cutlength = 2
+lines_x = 0
+lines_y = 0
 
 function randomsample()
   -- TODO: smarter scan of audio to check subfolders/etc
@@ -54,6 +57,7 @@ function audio_folders()
 end
 
 function randomparams()
+  -- random glut
   params:set("speed", math.random(-200,200))
   params:set("jitter", math.random(0,500))
   params:set("size", math.random(1,500))
@@ -63,10 +67,32 @@ function randomparams()
   params:set("reverb_mix", math.random(0,100))
   params:set("reverb_room", math.random(0,100))
   params:set("reverb_damp", math.random(0,100))
+  -- random softcut
+  randomcut1()
+  randomcut2()
+end
+
+function randomcut1()
+  softcut.level_cut_cut(1, 2, math.random(0,20) * 0.01)
+  params:set("cut1rate", math.random(-80,80) * 0.1)
+  params:set("cut2pan", math.random(0,10) * 0.1)
+  softcut.loop_start(1,math.random(0,400) * 0.1)
+  softcut.loop_end(2,math.random(400,800) * 0.1)
+  params:set("cut1level", math.random(0,75) * 0.01)
+end
+
+function randomcut2()
+  softcut.level_cut_cut(2, 1, math.random(0,20) * 0.01)
+  params:set("cut2rate", math.random(-80,80) * 0.1)
+  params:set("cut1pan", math.random(0,10) * -0.1)
+  softcut.loop_end(1,math.random(400,800) * 0.1)
+  softcut.loop_start(2,math.random(0,400) * 0.1)
+  params:set("cut2level", math.random(0,75) * 0.01)
 end
 
 function init()
-  audio_folders()
+  init_softcut()
+  --audio_folders()
   local SCREEN_FRAMERATE = 15
   local screen_refresh_metro = metro.init()
   screen_refresh_metro.event = function()
@@ -76,6 +102,7 @@ function init()
     end
   end
   screen_refresh_metro:start(1 / SCREEN_FRAMERATE)
+ 
   
   local sep = ": "
 
@@ -116,8 +143,61 @@ function init()
 
   params:add_taper("fade", sep.."att / dec", 1, 9000, 1000, 3, "ms")
   params:set_action("fade", function(value) engine.envscale(1, value / 1000) end)
-
+  
+  params:add_separator()
+  
+  params:add_control("cut1rate", "Cut1 rate", controlspec.new(-8, 8, 'lin', 0, 0, ""))
+  params:set_action("cut1rate", function(x) softcut.rate(1, x) end)
+  params:add_control("cut2rate", "Cut2 rate", controlspec.new(-8, 8, 'lin', 0, 0, ""))
+  params:set_action("cut2rate", function(x) softcut.rate(2, x) end)
+  
+  params:add_control("cut1pan", "Cut1 pan", controlspec.new(-1, 0, 'lin', 0, 0, ""))
+  params:set_action("cut1pan", function(x) softcut.pan(1, x) end)
+  params:add_control("cut2pan", "Cut2 pan", controlspec.new(0, 1, 'lin', 0, 0, ""))
+  params:set_action("cut2pan", function(x) softcut.pan(2, x) end)
+  
+  params:add_control("cut1level", "Cut1 level", controlspec.new(0, 1, 'lin', 0, 0, ""))
+  params:set_action("cut1level", function(x) softcut.level(1, x) end)
+  params:add_control("cut2level", "Cut2 level", controlspec.new(0, 1, 'lin', 0, 0, ""))
+  params:set_action("cut2level", function(x) softcut.level(2, x) end)
+  
   params:bang()
+end
+
+function init_softcut()
+  audio.level_adc_cut(1)
+  audio.level_eng_cut(1)
+  softcut.level_input_cut(1,1,1.0)
+  softcut.level_input_cut(2,2,1.0)
+  softcut.level_cut_cut(1, 2, 0.20)
+	softcut.level_cut_cut(2, 1, 0.20)
+  softcut.buffer_clear()
+  for i=1,2 do
+    softcut.play(i,1)
+    softcut.rate(i,1)
+    softcut.rate_slew_time(i,0.25)
+    softcut.loop(i,1)
+    --softcut.fade_time(1,0.2)
+    --softcut.level_slew_time(1,0.8)
+    --softcut.rate_slew_time(1,0.8)
+    softcut.enable(i,1)
+    softcut.buffer(i,1)
+    softcut.level(i,1.0)
+    softcut.level_slew_time(i, 0.25)
+    softcut.pre_level(i,0.5)
+    softcut.rec_level(i,1)
+    softcut.rec(i,1)
+    softcut.pan_slew_time(i,0.5)
+  end
+  softcut.position(1,1)
+  softcut.position(2,cutlength * 2)
+  softcut.pan(1,math.random(0,10) * -0.1)
+  softcut.pan(2,math.random(0,10))
+  softcut.loop_start(1,1)
+  softcut.loop_end(1,cutlength)
+  softcut.loop_start(2,cutlength * 2)
+  softcut.loop_end(2,cutlength * 3)
+  cutwaiting = false
 end
 
 function reset_voice()
@@ -134,10 +214,12 @@ function enc(n, d)
   elseif n == 2 then
     params:delta("speed", d)
     params:delta((ps[math.random(#ps)]), d)
+    randomcut1()
     screen_dirty = true
   elseif n == 3 then
     params:delta("pitch", d)
     params:delta((ps[math.random(#ps)]), d)
+    randomcut2()
     screen_dirty = true
   end
 end
@@ -149,9 +231,9 @@ function key(n, z)
   elseif n == 2 then
     if z == 1 then
     else
-      --previous channel TODO
-      --channel = channel - 1
-      --screen_dirty = true
+      for i = 1, 2 do
+        softcut.rate(i, math.random(50, 100) * .01)
+      end
     end
   elseif n == 3 then
     if z == 1 then
@@ -196,14 +278,24 @@ function drawtv()
       screen.fill()
     end
   end
+  lines_y = math.random(1,64)
+end
+
+function drawlines()
+  screen.level(math.random(0,15))
+  screen.rect(0,lines_y,128,math.random(0,4))
+  screen.fill()
+  screen.level(math.random(0,15))
+  screen.rect(0,lines_y+math.random(8,30),128,math.random(0,4))
+  screen.fill()
 end
 
 function cleanfilename()
-  return(string.gsub(params:get("sample"), "home/we/dust/audio/", ""))
+  return(string.gsub(params:get("sample"), "home/we/dust/audio/tape/", ""))
 end
 
 function guidetext(parameter, measure)
-  return(parameter .. ": " .. printround(params:get("1"..parameter), 1) .. measure)
+  return(parameter .. ": " .. printround(params:get(parameter), 1) .. measure)
 end
 
 function redraw()
@@ -211,8 +303,10 @@ function redraw()
   screen.aa(1)
   screen.line_width(1.0)
   
+  
   if shift == 0 then
     drawtv()
+    drawlines()
   else 
     -- tv guide
     screen.level(2)
